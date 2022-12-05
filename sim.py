@@ -20,6 +20,7 @@ import numpy as np
 
 class Person:
     def __init__(self, x, y, r, _space, speed = 100):
+        self._space = _space
         self.mass = 1
         inertia = pymunk.moment_for_circle(self.mass, 0, r, (0, 0))
         self.speed = speed
@@ -28,36 +29,40 @@ class Person:
         self.shape = pymunk.Circle(self.body, r, (0, 0))
         self.shape.elasticity = 0.95
         self.shape.friction = 0.0
-        _space.add(self.body, self.shape)
+        self._space.add(self.body, self.shape)
 
         self.panicked = False
 
         # self.people.append((self.shape, speed))
 
-    def update(self, _space, people, exits):
+    def update(self, people, exits):
         if not self.panicked:
-            if random.random() < 0.05:
+            if random.random() < 0.01:
                 self.panicked = True
+
+            point_of_interest = np.asarray([250,250])
 
         if self.panicked:
             nearest_exit = min(exits, key=lambda x: np.linalg.norm(np.array(x) - np.array(self.body.position)))
+            point_of_interest = np.asarray(nearest_exit)
 
-            towards_exit = (np.asarray(nearest_exit) -
-                            np.asarray(self.body.position))
-            towards_exit = towards_exit / np.linalg.norm(towards_exit)
-            towards_exit = towards_exit * 500
-            self.body._set_force(tuple(towards_exit))
 
-            velocity = self.body._get_velocity()
-            if velocity.length > self.speed:
-                new_force = velocity / velocity.length * self.speed
-                self.body._set_velocity(new_force)
+        towards_poi = (np.asarray(point_of_interest) -
+                        np.asarray(self.body.position))
+        towards_poi = towards_poi / np.linalg.norm(towards_poi)
+        towards_poi = towards_poi * 500
+        self.body._set_force(tuple(towards_poi))
+
+        velocity = self.body._get_velocity()
+        if velocity.length > self.speed:
+            new_force = velocity / velocity.length * self.speed
+            self.body._set_velocity(new_force)
 
         # Remove people within 15 pixels of any exit
         dist_to_exit = min([np.linalg.norm(np.asarray(self.body.position) - exit) for exit in exits])
 
         if dist_to_exit < 15:
-            _space.remove(self.shape, self.body)
+            self._space.remove(self.shape, self.body)
             people.remove(self)
 
 class CrowdSim(object):
@@ -70,10 +75,15 @@ class CrowdSim(object):
         self.MAX_VEL = MAX_VEL
         self.WALL_LENGTH = 500
         self.OFFSET = 10
+        self.offset = self.OFFSET
         
         self.exits = []
-        self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.95 * self.WALL_LENGTH))
-        self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.05 * self.WALL_LENGTH))
+        # self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.95 * self.WALL_LENGTH))
+        # self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.05 * self.WALL_LENGTH))
+        self.exits.append((self.offset, self.offset))
+        self.exits.append((self.WALL_LENGTH - self.offset, self.offset))
+        self.exits.append((self.offset, self.WALL_LENGTH - self.offset))
+        self.exits.append((self.WALL_LENGTH - self.offset, self.WALL_LENGTH - self.offset))
 
         self.history = []
 
@@ -106,12 +116,13 @@ class CrowdSim(object):
 
         # make people want to exit
         for person in self.people:
-            person.update(self._space, self.people, self.exits)
+            person.update(self.people, self.exits)
 
         # Add to history
         self.history.append(len(self.people))
 
         # stop running if no people left
+        print(list(map(lambda p: p.body.position, self.people)))
         if len(self.people) == 0:
             self._running = False
 
@@ -130,26 +141,6 @@ class CrowdSim(object):
                     speed=self.MAX_VEL
                     )
                 self.people.append(p)
-
-    def create_person(self, x, y, r=5):
-        """
-        Create a person
-        :return: None
-        """
-        mass = 1
-        inertia = pymunk.moment_for_circle(mass, 0, r, (0, 0))
-        body = pymunk.Body(mass, inertia)
-        body.position = x, y
-        shape = pymunk.Circle(body, r, (0, 0))
-        shape.elasticity = 0.95
-        shape.friction = 0.0
-        self._space.add(body, shape)
-        if self.variable_speed:
-            speed = random.randint(50, 150)
-        else:
-            speed = self.MAX_VEL
-        self.people.append((shape, speed))
-
 
     ### INTERNALS
 
