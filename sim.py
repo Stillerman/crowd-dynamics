@@ -203,7 +203,7 @@ class CrowdSim(object):
             self._clock.tick(50)
             pygame.display.set_caption("fps: " + str(self._clock.get_fps()) + " people: " + str(len(self.people)))
 
-        return self.history
+        return np.asarray(self.history)
 
     def _clear_screen(self) -> None:
         """
@@ -262,8 +262,8 @@ def sim(varible_speed=False, jiggle=False, allow_all_exits=False):
     return sim._run()
 
 def main():
-    hists_all = [sim(allow_all_exits=True) for _ in range(2)]
-    hists_nall = [sim(allow_all_exits=False) for _ in range(2)]
+    hists_all = [sim(allow_all_exits=True) for _ in range(5)]
+    hists_nall = [sim(allow_all_exits=False) for _ in range(5)]
 
     for hist in hists_all:
         plt.plot(hist, label="All Exits")
