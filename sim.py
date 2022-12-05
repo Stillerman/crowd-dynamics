@@ -18,20 +18,47 @@ import pymunk
 import pymunk.pygame_util
 import numpy as np
 
-# class Person:
-#     def __init__(self, x, y, r, _space, speed):
-#         mass = 1
-#         inertia = pymunk.moment_for_circle(mass, 0, r, (0, 0))
-#         body = pymunk.Body(mass, inertia)
-#         body.position = x, y
-#         shape = pymunk.Circle(body, r, (0, 0))
-#         shape.elasticity = 0.95
-#         shape.friction = 0.0
-#         _space.add(body, shape)
+class Person:
+    def __init__(self, x, y, r, _space, speed = 100):
+        self.mass = 1
+        inertia = pymunk.moment_for_circle(self.mass, 0, r, (0, 0))
+        self.speed = speed
+        self.body = pymunk.Body(self.mass, inertia)
+        self.body.position = x, y
+        self.shape = pymunk.Circle(self.body, r, (0, 0))
+        self.shape.elasticity = 0.95
+        self.shape.friction = 0.0
+        _space.add(self.body, self.shape)
 
-#         self.people.append((shape, speed))
+        self.panicked = False
 
+        # self.people.append((self.shape, speed))
 
+    def update(self, _space, people, exits):
+        if not self.panicked:
+            if random.random() < 0.05:
+                self.panicked = True
+
+        if self.panicked:
+            nearest_exit = min(exits, key=lambda x: np.linalg.norm(np.array(x) - np.array(self.body.position)))
+
+            towards_exit = (np.asarray(nearest_exit) -
+                            np.asarray(self.body.position))
+            towards_exit = towards_exit / np.linalg.norm(towards_exit)
+            towards_exit = towards_exit * 500
+            self.body._set_force(tuple(towards_exit))
+
+            velocity = self.body._get_velocity()
+            if velocity.length > self.speed:
+                new_force = velocity / velocity.length * self.speed
+                self.body._set_velocity(new_force)
+
+        # Remove people within 15 pixels of any exit
+        dist_to_exit = min([np.linalg.norm(np.asarray(self.body.position) - exit) for exit in exits])
+
+        if dist_to_exit < 15:
+            _space.remove(self.shape, self.body)
+            people.remove(self)
 
 class CrowdSim(object):
 
@@ -78,26 +105,8 @@ class CrowdSim(object):
     def update_people(self) -> None:
 
         # make people want to exit
-        for person,speed in self.people:
-            nearest_exit = min(self.exits, key=lambda x: np.linalg.norm(np.array(x) - np.array(person.body.position)))
-
-            towards_exit = (np.asarray(nearest_exit) -
-                            np.asarray(person.body.position))
-            towards_exit = towards_exit / np.linalg.norm(towards_exit)
-            towards_exit = towards_exit * 500
-            person.body._set_force(tuple(towards_exit))
-
-            velocity = person.body._get_velocity()
-            if velocity.length > speed:
-                new_force = velocity / velocity.length * speed
-                person.body._set_velocity(new_force)
-
-        # Remove people within 15 pixels of any exit
-        people_to_remove = [(person,speed) for exit in self.exits for person,speed in self.people if np.linalg.norm(
-            np.asarray(person.body.position) - exit) < 15]
-        for person, speed in people_to_remove:
-            self._space.remove(person, person.body)
-            self.people.remove((person, speed))
+        for person in self.people:
+            person.update(self._space, self.people, self.exits)
 
         # Add to history
         self.history.append(len(self.people))
@@ -113,11 +122,14 @@ class CrowdSim(object):
         """
         for i in range(20):
             for j in range(20):
-                if self.jiggle:
-                    jiggle = random.randint(-10, 10)
-                    self.create_person(50 + i*20 + jiggle, 50 + j*20 + jiggle)
-                else:
-                    self.create_person(50 + i*20, 50 + j*20)
+                p = Person(
+                    x=50 + i*20,
+                    y=50 + j*20,
+                    r=5,
+                    _space=self._space,
+                    speed=self.MAX_VEL
+                    )
+                self.people.append(p)
 
     def create_person(self, x, y, r=5):
         """
@@ -195,7 +207,7 @@ class CrowdSim(object):
         self._running = True
 
         # Balls that exist in the world
-        self.people: List[pymunk.Circle] = []
+        self.people: List[Person] = []
 
 
     def _process_events(self) -> None:
