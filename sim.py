@@ -19,38 +19,55 @@ import pymunk.pygame_util
 import numpy as np
 
 class Person:
-    def __init__(self, x, y, r, _space, speed = 100):
+    def __init__(self, x, y, _space, speed = 100, handicapped = False, allow_all_exits = False):
+        r = 7 if handicapped else 5
         self._space = _space
-        self.mass = 1
+        self.allow_all_exits = allow_all_exits
+        self.handicapped = handicapped
+        self.mass = r**2
         inertia = pymunk.moment_for_circle(self.mass, 0, r, (0, 0))
-        self.speed = speed
+        self.speed = speed + random.randint(-15, 15)
         self.body = pymunk.Body(self.mass, inertia)
         self.body.position = x, y
         self.shape = pymunk.Circle(self.body, r, (0, 0))
         self.shape.elasticity = 0.95
         self.shape.friction = 0.0
+
         self._space.add(self.body, self.shape)
 
         self.panicked = False
 
-        # self.people.append((self.shape, speed))
+    def set_color(self):
+        if self.handicapped:
+            self.shape.color = (255, 0, 0, 255)
+        else:
+            self.shape.color = (0, 0, 255, 255)
+        
+    def update(self, exits, handicapped_exits):
+        self.set_color()
 
-    def update(self, people, exits):
-        if not self.panicked:
-            if random.random() < 0.01:
-                self.panicked = True
+        if self.handicapped:
+            available_exits = [*handicapped_exits]
+        elif self.allow_all_exits:
+            available_exits = [*handicapped_exits, *exits]
+        else:
+            available_exits = [*exits]
+        # if not self.panicked:
+        #     if random.random() < 0.1:
+        #         self.panicked = True
 
-            point_of_interest = np.asarray([250,250])
+        #     point_of_interest = np.asarray([250,250])
 
-        if self.panicked:
-            nearest_exit = min(exits, key=lambda x: np.linalg.norm(np.array(x) - np.array(self.body.position)))
-            point_of_interest = np.asarray(nearest_exit)
+        # if self.panicked:
 
+        nearest_exit = min(available_exits, key=lambda x: np.linalg.norm(x - np.array(self.body.position)))
+        
+        point_of_interest = np.asarray(nearest_exit)
 
         towards_poi = (np.asarray(point_of_interest) -
                         np.asarray(self.body.position))
         towards_poi = towards_poi / np.linalg.norm(towards_poi)
-        towards_poi = towards_poi * 500
+        towards_poi = towards_poi * 5000 * self.mass
         self.body._set_force(tuple(towards_poi))
 
         velocity = self.body._get_velocity()
@@ -59,18 +76,22 @@ class Person:
             self.body._set_velocity(new_force)
 
         # Remove people within 15 pixels of any exit
-        dist_to_exit = min([np.linalg.norm(np.asarray(self.body.position) - exit) for exit in exits])
 
-        if dist_to_exit < 15:
+        dist_to_exit = min([np.linalg.norm(np.asarray(self.body.position) - exit) for exit in available_exits])
+
+        if dist_to_exit < 30:
             self._space.remove(self.shape, self.body)
-            people.remove(self)
+            return False
+
+        return True
 
 class CrowdSim(object):
 
-    def __init__(self, MAX_VEL=100, variable_speed=False, jiggle=False) -> None:
+    def __init__(self, MAX_VEL=100, variable_speed=False, jiggle=False, allow_all_exits=False) -> None:
 
         # Params
         self.variable_speed = variable_speed
+        self.allow_all_exits = allow_all_exits
         self.jiggle = jiggle
         self.MAX_VEL = MAX_VEL
         self.WALL_LENGTH = 500
@@ -78,12 +99,13 @@ class CrowdSim(object):
         self.offset = self.OFFSET
         
         self.exits = []
+        self.handicapped_exits = []
         # self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.95 * self.WALL_LENGTH))
         # self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.05 * self.WALL_LENGTH))
-        self.exits.append((self.offset, self.offset))
-        self.exits.append((self.WALL_LENGTH - self.offset, self.offset))
-        self.exits.append((self.offset, self.WALL_LENGTH - self.offset))
-        self.exits.append((self.WALL_LENGTH - self.offset, self.WALL_LENGTH - self.offset))
+        self.exits.append(np.asarray((self.offset, self.offset)))
+        self.exits.append(np.asarray((self.WALL_LENGTH - self.offset, self.offset)))
+        self.handicapped_exits.append(np.asarray((self.offset, self.WALL_LENGTH - self.offset)))
+        self.handicapped_exits.append(np.asarray((self.WALL_LENGTH - self.offset, self.WALL_LENGTH - self.offset)))
 
         self.history = []
 
@@ -116,13 +138,15 @@ class CrowdSim(object):
 
         # make people want to exit
         for person in self.people:
-            person.update(self.people, self.exits)
+            if not person.update(self.exits, self.handicapped_exits):
+                self.people.remove(person)
 
         # Add to history
         self.history.append(len(self.people))
 
         # stop running if no people left
-        print(list(map(lambda p: p.body.position, self.people)))
+        if len(self.people) <=  2:
+            print(list(map(lambda p: p.body.position, self.people)))
         if len(self.people) == 0:
             self._running = False
 
@@ -131,16 +155,34 @@ class CrowdSim(object):
         Create a grid of people
         :return: None
         """
+        # arrange 20 by 20 people in a grid
         for i in range(20):
             for j in range(20):
-                p = Person(
-                    x=50 + i*20,
-                    y=50 + j*20,
-                    r=5,
-                    _space=self._space,
-                    speed=self.MAX_VEL
+                x = self.OFFSET + (self.WALL_LENGTH / 20) * i
+                y = self.OFFSET + (self.WALL_LENGTH / 20) * j
+                self.people.append(
+                    Person(
+                        x,
+                        y,
+                        _space=self._space,
+                        handicapped=random.random() < 0.25,
+                        speed = 100,
+                        allow_all_exits=self.allow_all_exits,
                     )
-                self.people.append(p)
+                )
+
+
+        # for i in range(20):
+        #     for j in range(20):
+        #         p = Person(
+        #             x=50 + i*15,
+        #             y=50 + j*15,
+        #             r=5,
+        #             _space=self._space,
+        #             speed=self.MAX_VEL,
+        #             handicapped=random.random() < 0.25
+        #             )
+        #         self.people.append(p)
 
     ### INTERNALS
 
@@ -159,7 +201,7 @@ class CrowdSim(object):
             pygame.display.flip()
             # Delay fixed time between frames
             self._clock.tick(50)
-            pygame.display.set_caption("fps: " + str(self._clock.get_fps()))
+            pygame.display.set_caption("fps: " + str(self._clock.get_fps()) + " people: " + str(len(self.people)))
 
         return self.history
 
@@ -215,20 +257,19 @@ class CrowdSim(object):
                 pygame.image.save(self._screen, "bouncing_balls.png")
 
 
-def sim(varible_speed=False, jiggle=False):
-    sim = CrowdSim(variable_speed=varible_speed, jiggle=jiggle)
+def sim(varible_speed=False, jiggle=False, allow_all_exits=False):
+    sim = CrowdSim(variable_speed=varible_speed, jiggle=jiggle, allow_all_exits=allow_all_exits)
     return sim._run()
 
 def main():
-    hists_vs = [sim(jiggle=True) for _ in range(2)]
-    hists_nvs = [sim(jiggle=False) for _ in range(2)]
+    hists_all = [sim(allow_all_exits=True) for _ in range(2)]
+    hists_nall = [sim(allow_all_exits=False) for _ in range(2)]
 
+    for hist in hists_all:
+        plt.plot(hist, label="All Exits")
 
-    for hist in hists_vs:
-        plt.plot(hist, label="jiggle")
-
-    for hist in hists_nvs:
-        plt.plot(hist, label="no jiggle")
+    for hist in hists_nall:
+        plt.plot(hist, label="Not All Exits")
 
     plt.legend()
     plt.show()
