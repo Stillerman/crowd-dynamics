@@ -18,17 +18,35 @@ import pymunk
 import pymunk.pygame_util
 import numpy as np
 
+# class Person:
+#     def __init__(self, x, y, r, _space, speed):
+#         mass = 1
+#         inertia = pymunk.moment_for_circle(mass, 0, r, (0, 0))
+#         body = pymunk.Body(mass, inertia)
+#         body.position = x, y
+#         shape = pymunk.Circle(body, r, (0, 0))
+#         shape.elasticity = 0.95
+#         shape.friction = 0.0
+#         _space.add(body, shape)
+
+#         self.people.append((shape, speed))
+
+
 
 class CrowdSim(object):
 
-    def __init__(self, MAX_VEL=100) -> None:
+    def __init__(self, MAX_VEL=100, variable_speed=False, jiggle=False) -> None:
 
         # Params
+        self.variable_speed = variable_speed
+        self.jiggle = jiggle
         self.MAX_VEL = MAX_VEL
         self.WALL_LENGTH = 500
         self.OFFSET = 10
-        self.EXIT = (self.OFFSET + self.WALL_LENGTH / 2,
-                     self.OFFSET + 0.95 * self.WALL_LENGTH)
+        
+        self.exits = []
+        self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.95 * self.WALL_LENGTH))
+        self.exits.append((self.OFFSET + self.WALL_LENGTH / 2, self.OFFSET + 0.05 * self.WALL_LENGTH))
 
         self.history = []
 
@@ -61,7 +79,9 @@ class CrowdSim(object):
 
         # make people want to exit
         for person,speed in self.people:
-            towards_exit = (np.asarray(self.EXIT) -
+            nearest_exit = min(self.exits, key=lambda x: np.linalg.norm(np.array(x) - np.array(person.body.position)))
+
+            towards_exit = (np.asarray(nearest_exit) -
                             np.asarray(person.body.position))
             towards_exit = towards_exit / np.linalg.norm(towards_exit)
             towards_exit = towards_exit * 500
@@ -72,9 +92,9 @@ class CrowdSim(object):
                 new_force = velocity / velocity.length * speed
                 person.body._set_velocity(new_force)
 
-        # Remove people within 15 pixels of the exit
-        people_to_remove = [(person,speed) for person,speed in self.people if np.linalg.norm(
-            np.asarray(person.body.position) - self.EXIT) < 15]
+        # Remove people within 15 pixels of any exit
+        people_to_remove = [(person,speed) for exit in self.exits for person,speed in self.people if np.linalg.norm(
+            np.asarray(person.body.position) - exit) < 15]
         for person, speed in people_to_remove:
             self._space.remove(person, person.body)
             self.people.remove((person, speed))
@@ -93,7 +113,11 @@ class CrowdSim(object):
         """
         for i in range(20):
             for j in range(20):
-                self.create_person(50 + i*20, 50 + j*20, random.randint(5, 10))
+                if self.jiggle:
+                    jiggle = random.randint(-10, 10)
+                    self.create_person(50 + i*20 + jiggle, 50 + j*20 + jiggle)
+                else:
+                    self.create_person(50 + i*20, 50 + j*20)
 
     def create_person(self, x, y, r=5):
         """
@@ -108,7 +132,10 @@ class CrowdSim(object):
         shape.elasticity = 0.95
         shape.friction = 0.0
         self._space.add(body, shape)
-        speed = random.randint(50, 150)
+        if self.variable_speed:
+            speed = random.randint(50, 150)
+        else:
+            speed = self.MAX_VEL
         self.people.append((shape, speed))
 
 
@@ -185,16 +212,22 @@ class CrowdSim(object):
                 pygame.image.save(self._screen, "bouncing_balls.png")
 
 
-def sim():
-    sim = CrowdSim()
+def sim(varible_speed=False, jiggle=False):
+    sim = CrowdSim(variable_speed=varible_speed, jiggle=jiggle)
     return sim._run()
 
 def main():
-    hists = [sim() for _ in range(5)]
+    hists_vs = [sim(jiggle=True) for _ in range(2)]
+    hists_nvs = [sim(jiggle=False) for _ in range(2)]
 
-    for hist in hists:
-        plt.plot(hist)
-    
+
+    for hist in hists_vs:
+        plt.plot(hist, label="jiggle")
+
+    for hist in hists_nvs:
+        plt.plot(hist, label="no jiggle")
+
+    plt.legend()
     plt.show()
 
 if __name__ == "__main__":
